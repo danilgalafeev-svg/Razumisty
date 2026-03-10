@@ -96,13 +96,3 @@ npm run dev
 ```
 
 
-
-
-DB Password pzOrarzQzTfJAOrx
-
-anon public key eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFudmN1eXRqdWhzaXJkbXp3cXJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwODg4NTIsImV4cCI6MjA4ODY2NDg1Mn0.ncCKQrQVmFx13vmd2ze9ucG3XxiGSjS937CnAlB_iSA
-
-service role key eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFudmN1eXRqdWhzaXJkbXp3cXJqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzA4ODg1MiwiZXhwIjoyMDg4NjY0ODUyfQ.KmPczVU2CbtG3bAHqHpPj5FPiEAmc91ZRVjDHNB1rz4
-
-project url https://qnvcuytjuhsirdmzwqrj.supabase.co
-
