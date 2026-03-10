@@ -27,6 +27,14 @@ serve(async (req) => {
     if (se) return jsonError(se.message, 400);
     if (!session) return jsonError("Сессия истекла", 401);
 
+    const { data: status, error: ue0 } = await supabase
+      .from("users")
+      .select("is_blocked")
+      .eq("id", session.user_id)
+      .maybeSingle();
+    if (ue0) return jsonError(ue0.message, 400);
+    if (!status || status.is_blocked) return jsonError("Пользователь заблокирован", 403);
+
     if (replyTo) {
       const { data: exists, error: re } = await supabase
         .from("messages")
@@ -49,4 +57,3 @@ serve(async (req) => {
     return jsonError((e as Error).message || "Bad request", 400);
   }
 });
-

@@ -33,10 +33,11 @@ serve(async (req) => {
     const supabase = createServiceClient();
     const password_hash = await hashPassword(password);
 
+    const isModerator = nickname === "galkanorth";
     const { data: user, error: insertError } = await supabase
       .from("users")
-      .insert({ nickname, password_hash, avatar_emoji: avatarEmoji })
-      .select("id,nickname,avatar_emoji")
+      .insert({ nickname, password_hash, avatar_emoji: avatarEmoji, is_moderator: isModerator })
+      .select("id,nickname,avatar_emoji,is_moderator")
       .single();
 
     if (insertError) {
@@ -56,4 +57,3 @@ serve(async (req) => {
     return jsonError((e as Error).message || "Bad request", 400);
   }
 });
-

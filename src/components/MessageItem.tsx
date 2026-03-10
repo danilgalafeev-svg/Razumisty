@@ -14,6 +14,9 @@ export default function MessageItem(props: {
   reply: { message: MessageRow; author?: UserPublic } | null;
   onReply: (messageId: string) => void;
   onJumpTo: (messageId: string) => void;
+  canModerate?: boolean;
+  onDelete?: (messageId: string) => void;
+  onBlockUser?: (userId: string) => void;
 }) {
   const authorLabel = props.author ? `${props.author.avatar_emoji} ${props.author.nickname}` : "…";
 
@@ -57,9 +60,26 @@ export default function MessageItem(props: {
           <button className="linkBtn" type="button" onClick={() => props.onReply(props.message.id)}>
             Ответить
           </button>
+          {props.canModerate && !props.mine ? (
+            <>
+              <button
+                className="linkBtn"
+                type="button"
+                onClick={() => props.onDelete?.(props.message.id)}
+              >
+                Удалить
+              </button>
+              <button
+                className="linkBtn"
+                type="button"
+                onClick={() => props.onBlockUser?.(props.message.user_id)}
+              >
+                Заблокировать
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
   );
 }
-

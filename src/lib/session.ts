@@ -6,7 +6,11 @@ export function loadSession(): Session | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as Session;
+    const parsed = JSON.parse(raw) as Session;
+    if (parsed?.user && typeof parsed.user.is_moderator !== "boolean") {
+      return { ...parsed, user: { ...parsed.user, is_moderator: false } };
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -19,4 +23,3 @@ export function saveSession(session: Session) {
 export function clearSession() {
   localStorage.removeItem(KEY);
 }
-

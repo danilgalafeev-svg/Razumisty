@@ -18,12 +18,14 @@ serve(async (req) => {
     const supabase = createServiceClient();
     const { data: user, error } = await supabase
       .from("users")
-      .select("id,nickname,password_hash,avatar_emoji")
+      .select("id,nickname,password_hash,avatar_emoji,is_moderator,is_blocked")
       .eq("nickname", nickname)
       .maybeSingle();
 
     if (error) return jsonError(error.message, 400);
     if (!user) return jsonError("Неверный никнейм или пароль", 401);
+
+    if (user.is_blocked) return jsonError("Пользователь заблокирован", 403);
 
     const ok = await verifyPassword(password, user.password_hash);
     if (!ok) return jsonError("Неверный никнейм или пароль", 401);
@@ -36,10 +38,14 @@ serve(async (req) => {
 
     return jsonOk({
       token,
-      user: { id: user.id, nickname: user.nickname, avatar_emoji: user.avatar_emoji },
+      user: {
+        id: user.id,
+        nickname: user.nickname,
+        avatar_emoji: user.avatar_emoji,
+        is_moderator: user.is_moderator,
+      },
     });
   } catch (e) {
     return jsonError((e as Error).message || "Bad request", 400);
   }
 });
-

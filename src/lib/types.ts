@@ -15,6 +15,5 @@ export type MessageRow = {
 
 export type Session = {
   token: string;
-  user: Pick<UserPublic, "id" | "nickname" | "avatar_emoji">;
+  user: Pick<UserPublic, "id" | "nickname" | "avatar_emoji"> & { is_moderator: boolean };
 };
-

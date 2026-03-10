@@ -62,3 +62,21 @@ export async function sendMessage(params: {
   return { data: res.data as { message: MessageRow }, error: null };
 }
 
+export async function deleteMessage(params: {
+  token: string;
+  messageId: string;
+}): Promise<FnOk<{ ok: true }>> {
+  const res = await supabase.functions.invoke("delete_message", {
+    body: { token: params.token, messageId: params.messageId },
+  });
+  if (res.error) return { data: null, error: res.error.message };
+  return { data: res.data as { ok: true }, error: null };
+}
+
+export async function blockUser(params: { token: string; userId: string }): Promise<FnOk<{ ok: true }>> {
+  const res = await supabase.functions.invoke("block_user", {
+    body: { token: params.token, userId: params.userId },
+  });
+  if (res.error) return { data: null, error: res.error.message };
+  return { data: res.data as { ok: true }, error: null };
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { logout, sendMessage, updateAvatar } from "../lib/api";
+import { blockUser, deleteMessage, logout, sendMessage, updateAvatar } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import type { MessageRow, Session, UserPublic } from "../lib/types";
 import AvatarPicker from "./AvatarPicker";
@@ -109,6 +109,14 @@ export default function ChatPage(props: {
           setTimeout(scrollToEnd, 30);
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "messages" },
+        (payload) => {
+          const oldRow = payload.old as MessageRow;
+          setMessages((prev) => prev.filter((x) => x.id !== oldRow.id));
+        },
+      )
       .subscribe();
 
     return () => {
@@ -154,6 +162,28 @@ export default function ChatPage(props: {
       await logout(props.session.token);
     } finally {
       props.onLogout();
+    }
+  }
+
+  async function onDeleteMessage(messageId: string) {
+    if (!window.confirm("Удалить это сообщение?")) return;
+    setError(null);
+    const res = await deleteMessage({ token: props.session.token, messageId });
+    if (res.error || !res.data) {
+      setError(res.error ?? "Не удалось удалить сообщение");
+      return;
+    }
+    setMessages((prev) => prev.filter((x) => x.id !== messageId));
+  }
+
+  async function onBlockUser(userId: string) {
+    const nickname = usersById[userId]?.nickname ?? "пользователя";
+    if (!window.confirm(`Заблокировать ${nickname}?`)) return;
+    setError(null);
+    const res = await blockUser({ token: props.session.token, userId });
+    if (res.error || !res.data) {
+      setError(res.error ?? "Не удалось заблокировать пользователя");
+      return;
     }
   }
 
@@ -222,6 +252,9 @@ export default function ChatPage(props: {
                 reply={reply}
                 onReply={(id) => setReplyTo(id)}
                 onJumpTo={(id) => jumpToMessage(id)}
+                canModerate={props.session.user.is_moderator}
+                onDelete={onDeleteMessage}
+                onBlockUser={onBlockUser}
               />
             );
           })}
