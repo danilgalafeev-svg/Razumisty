@@ -132,7 +132,7 @@ export default function ChatPage(props: {
     setError(null);
     try {
       const res = await sendMessage({ token: props.session.token, text: trimmed, replyTo });
-      if (res.error) throw new Error(res.error);
+      if (res.error || !res.data) throw new Error(res.error ?? "Не удалось отправить сообщение");
       setText("");
       setReplyTo(null);
 
@@ -161,7 +161,7 @@ export default function ChatPage(props: {
     setError(null);
     try {
       const res = await updateAvatar({ token: props.session.token, avatarEmoji: avatarChoice });
-      if (res.error) throw new Error(res.error);
+      if (res.error || !res.data) throw new Error(res.error ?? "Не удалось обновить аватар");
 
       props.onSessionUpdate({ ...props.session, user: res.data.user });
       loadedUserIdsRef.current.add(res.data.user.id);

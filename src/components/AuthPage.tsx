@@ -22,13 +22,13 @@ export default function AuthPage(props: { onAuthed: (session: Session) => void }
     try {
       if (tab === "login") {
         const res = await login({ nickname, password });
-        if (res.error) return setError(res.error);
+        if (res.error || !res.data) return setError(res.error ?? "Ошибка входа");
         props.onAuthed(res.data);
         return;
       }
 
       const res = await register({ nickname, password, avatarEmoji });
-      if (res.error) return setError(res.error);
+      if (res.error || !res.data) return setError(res.error ?? "Ошибка регистрации");
       props.onAuthed(res.data);
     } finally {
       setBusy(false);
