@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { blockUser, deleteMessage, logout, sendCircle, sendMessage, updateAvatar } from "../lib/api";
+import { blockUser, deleteMessage, logout, sendCircle, sendMessage, setTyping, updateAvatar } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import type { MessageRow, Session, UserPublic } from "../lib/types";
 import AvatarPicker from "./AvatarPicker";
@@ -28,6 +28,8 @@ export default function ChatPage(props: {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [typingMap, setTypingMap] = useState<Record<string, string>>({});
+  const [typingTick, setTypingTick] = useState(0);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -37,6 +39,8 @@ export default function ChatPage(props: {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
+  const typingStopRef = useRef<number | null>(null);
+  const typingLastSentRef = useRef<number>(0);
 
   const messageById = useMemo(() => {
     const map = new Map<string, MessageRow>();
@@ -85,6 +89,26 @@ export default function ChatPage(props: {
     }
   }
 
+  function stopTypingNow() {
+    if (typingStopRef.current) {
+      window.clearTimeout(typingStopRef.current);
+      typingStopRef.current = null;
+    }
+    void setTyping({ token: props.session.token, isTyping: false });
+  }
+
+  function scheduleTypingPing() {
+    const now = Date.now();
+    if (now - typingLastSentRef.current > 1200) {
+      typingLastSentRef.current = now;
+      void setTyping({ token: props.session.token, isTyping: true });
+    }
+    if (typingStopRef.current) window.clearTimeout(typingStopRef.current);
+    typingStopRef.current = window.setTimeout(() => {
+      void setTyping({ token: props.session.token, isTyping: false });
+    }, 2000);
+  }
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -118,9 +142,75 @@ export default function ChatPage(props: {
   }, []);
 
   useEffect(() => {
+    const id = window.setInterval(() => setTypingTick((x) => x + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTyping() {
+      const { data, error: e } = await supabase
+        .from("typing_state")
+        .select("user_id,updated_at");
+      if (e || cancelled) return;
+      const map: Record<string, string> = {};
+      for (const row of data as { user_id: string; updated_at: string }[]) {
+        map[row.user_id] = row.updated_at;
+      }
+      setTypingMap(map);
+      await ensureUsersLoaded(Object.keys(map));
+    }
+    void loadTyping();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("typing_state:realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "typing_state" },
+        (payload) => {
+          const row = payload.new as { user_id: string; updated_at: string };
+          setTypingMap((prev) => ({ ...prev, [row.user_id]: row.updated_at }));
+          void ensureUsersLoaded([row.user_id]);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "typing_state" },
+        (payload) => {
+          const row = payload.new as { user_id: string; updated_at: string };
+          setTypingMap((prev) => ({ ...prev, [row.user_id]: row.updated_at }));
+          void ensureUsersLoaded([row.user_id]);
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "typing_state" },
+        (payload) => {
+          const row = payload.old as { user_id: string };
+          setTypingMap((prev) => {
+            const next = { ...prev };
+            delete next[row.user_id];
+            return next;
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (recordedUrl) URL.revokeObjectURL(recordedUrl);
       cleanupRecording();
+      stopTypingNow();
     };
   }, [recordedUrl]);
 
@@ -171,6 +261,7 @@ export default function ChatPage(props: {
       if (res.error || !res.data) throw new Error(res.error ?? "Не удалось отправить сообщение");
       setText("");
       setReplyTo(null);
+      stopTypingNow();
 
       setMessages((prev) => {
         const m = res.data.message;
@@ -242,6 +333,7 @@ export default function ChatPage(props: {
   async function startRecording() {
     setRecordingError(null);
     if (recording) return;
+    stopTypingNow();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: 640, height: 640 },
@@ -316,6 +408,7 @@ export default function ChatPage(props: {
       setMessages((prev) => (prev.some((x) => x.id === res.data.message.id) ? prev : [...prev, res.data.message]));
       await ensureUsersLoaded([res.data.message.user_id]);
       setReplyTo(null);
+      stopTypingNow();
       setRecordedBlob(null);
       if (recordedUrl) URL.revokeObjectURL(recordedUrl);
       setRecordedUrl(null);
@@ -327,6 +420,25 @@ export default function ChatPage(props: {
       setSending(false);
     }
   }
+
+  const activeTyping = useMemo(() => {
+    const now = Date.now();
+    const ids = Object.entries(typingMap)
+      .filter(([userId, updatedAt]) => {
+        if (userId === props.session.user.id) return false;
+        const age = now - new Date(updatedAt).getTime();
+        return age >= 0 && age <= 6000;
+      })
+      .map(([userId]) => userId);
+
+    const names = ids
+      .map((id) => usersById[id]?.nickname)
+      .filter((name): name is string => Boolean(name));
+
+    if (names.length === 0) return "";
+    if (names.length === 1) return `${names[0]} печатает...`;
+    return `${names.join(", ")} печатают...`;
+  }, [typingMap, usersById, props.session.user.id, typingTick]);
 
   return (
     <div className="shell">
@@ -443,7 +555,10 @@ export default function ChatPage(props: {
             <input
               className="input"
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                scheduleTypingPing();
+              }}
               placeholder="Напишите сообщение…"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -451,6 +566,7 @@ export default function ChatPage(props: {
                   void onSend();
                 }
               }}
+              onBlur={stopTypingNow}
             />
             <button
               className="btn btnPrimary"
@@ -472,6 +588,7 @@ export default function ChatPage(props: {
           <div className="hint" style={{ marginTop: 0 }}>
             Enter — отправить, Shift+Enter — перенос строки. Кружок — до 60 секунд.
           </div>
+          {activeTyping ? <div className="hint">{activeTyping}</div> : null}
           {recordingError ? <div className="error">{recordingError}</div> : null}
         </div>
       </div>

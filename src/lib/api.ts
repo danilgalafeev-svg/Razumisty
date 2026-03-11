@@ -79,6 +79,17 @@ export async function sendCircle(params: {
   return { data: res.data as { message: MessageRow }, error: null };
 }
 
+export async function setTyping(params: {
+  token: string;
+  isTyping: boolean;
+}): Promise<FnOk<{ ok: true }>> {
+  const res = await supabase.functions.invoke("set_typing", {
+    body: { token: params.token, isTyping: params.isTyping },
+  });
+  if (res.error) return { data: null, error: res.error.message };
+  return { data: res.data as { ok: true }, error: null };
+}
+
 export async function deleteMessage(params: {
   token: string;
   messageId: string;
