@@ -11,6 +11,9 @@ export type MessageRow = {
   text: string;
   reply_to: string | null;
   created_at: string;
+  kind: "text" | "circle";
+  media_url: string | null;
+  media_duration: number | null;
 };
 
 export type Session = {

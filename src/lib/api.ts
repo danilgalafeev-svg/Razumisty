@@ -62,6 +62,23 @@ export async function sendMessage(params: {
   return { data: res.data as { message: MessageRow }, error: null };
 }
 
+export async function sendCircle(params: {
+  token: string;
+  file: Blob;
+  duration: number;
+  replyTo?: string | null;
+}): Promise<FnOk<{ message: MessageRow }>> {
+  const form = new FormData();
+  form.append("token", params.token);
+  form.append("duration", String(params.duration));
+  if (params.replyTo) form.append("replyTo", params.replyTo);
+  form.append("file", params.file, "circle.webm");
+
+  const res = await supabase.functions.invoke("send_circle", { body: form });
+  if (res.error) return { data: null, error: res.error.message };
+  return { data: res.data as { message: MessageRow }, error: null };
+}
+
 export async function deleteMessage(params: {
   token: string;
   messageId: string;

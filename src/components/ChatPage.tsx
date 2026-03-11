@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { blockUser, deleteMessage, logout, sendMessage, updateAvatar } from "../lib/api";
+import { blockUser, deleteMessage, logout, sendCircle, sendMessage, updateAvatar } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import type { MessageRow, Session, UserPublic } from "../lib/types";
 import AvatarPicker from "./AvatarPicker";
@@ -23,10 +23,20 @@ export default function ChatPage(props: {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [avatarModal, setAvatarModal] = useState(false);
   const [avatarChoice, setAvatarChoice] = useState(props.session.user.avatar_emoji);
+  const [recording, setRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const loadedUserIdsRef = useRef<Set<string>>(new Set([props.session.user.id]));
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const liveVideoRef = useRef<HTMLVideoElement | null>(null);
 
   const messageById = useMemo(() => {
     const map = new Map<string, MessageRow>();
@@ -64,6 +74,17 @@ export default function ChatPage(props: {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  function cleanupRecording() {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) track.stop();
+      streamRef.current = null;
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -72,7 +93,7 @@ export default function ChatPage(props: {
       try {
         const { data, error: e } = await supabase
           .from("messages")
-          .select("id,user_id,text,reply_to,created_at")
+          .select("id,user_id,text,reply_to,created_at,kind,media_url,media_duration")
           .order("created_at", { ascending: false })
           .limit(80);
         if (e) throw e;
@@ -95,6 +116,13 @@ export default function ChatPage(props: {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+      cleanupRecording();
+    };
+  }, [recordedUrl]);
 
   useEffect(() => {
     const channel = supabase
@@ -211,6 +239,95 @@ export default function ChatPage(props: {
     }
   }
 
+  async function startRecording() {
+    setRecordingError(null);
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: 640, height: 640 },
+        audio: true,
+      });
+      streamRef.current = stream;
+      if (liveVideoRef.current) {
+        liveVideoRef.current.srcObject = stream;
+      }
+
+      const mime =
+        MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+          ? "video/webm;codecs=vp9,opus"
+          : MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+            ? "video/webm;codecs=vp8,opus"
+            : "video/webm";
+      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        setRecordedBlob(blob);
+        setRecordedUrl(URL.createObjectURL(blob));
+        setRecording(false);
+        cleanupRecording();
+      };
+
+      setRecordedBlob(null);
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+      setRecordedUrl(null);
+      setRecordingDuration(0);
+      setRecording(true);
+
+      recorder.start(200);
+      timerRef.current = window.setInterval(() => {
+        setRecordingDuration((prev) => {
+          const next = prev + 1;
+          if (next >= 60) {
+            recorder.stop();
+          }
+          return next;
+        });
+      }, 1000);
+    } catch (err) {
+      setRecordingError((err as Error).message || "Не удалось запустить запись");
+      cleanupRecording();
+      setRecording(false);
+    }
+  }
+
+  function stopRecording() {
+    if (!recorderRef.current) return;
+    recorderRef.current.stop();
+  }
+
+  async function sendRecordedCircle() {
+    if (!recordedBlob) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await sendCircle({
+        token: props.session.token,
+        file: recordedBlob,
+        duration: Math.max(1, Math.min(60, recordingDuration)),
+        replyTo,
+      });
+      if (res.error || !res.data) throw new Error(res.error ?? "Не удалось отправить кружок");
+
+      setMessages((prev) => (prev.some((x) => x.id === res.data.message.id) ? prev : [...prev, res.data.message]));
+      await ensureUsersLoaded([res.data.message.user_id]);
+      setReplyTo(null);
+      setRecordedBlob(null);
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+      setRecordedUrl(null);
+      setRecordingDuration(0);
+      setTimeout(scrollToEnd, 30);
+    } catch (err) {
+      setError((err as Error).message || "Не удалось отправить кружок");
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="shell">
       <div className="card chatWrap">
@@ -281,6 +398,47 @@ export default function ChatPage(props: {
             </div>
           ) : null}
 
+          {recording || recordedUrl ? (
+            <div className="replyBox">
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div className="replyMeta">Кружок</div>
+                  <div className="replyText">
+                    {recording ? `Идет запись: ${recordingDuration}s` : "Готов к отправке"}
+                  </div>
+                </div>
+                <div className="row">
+                  {recording ? (
+                    <button className="btn" type="button" onClick={stopRecording}>
+                      Остановить
+                    </button>
+                  ) : (
+                    <>
+                      <button className="btn" type="button" onClick={() => {
+                        if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+                        setRecordedUrl(null);
+                        setRecordedBlob(null);
+                        setRecordingDuration(0);
+                      }}>
+                        Отменить
+                      </button>
+                      <button className="btn btnPrimary" type="button" disabled={sending} onClick={() => void sendRecordedCircle()}>
+                        {sending ? "…" : "Отправить"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                {recording ? (
+                  <video className="circleVideo" ref={liveVideoRef} autoPlay muted playsInline />
+                ) : recordedUrl ? (
+                  <video className="circleVideo" src={recordedUrl} controls playsInline />
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="row">
             <input
               className="input"
@@ -302,10 +460,19 @@ export default function ChatPage(props: {
             >
               {sending ? "…" : "Отправить"}
             </button>
+            <button
+              className="btn"
+              type="button"
+              disabled={recording || !!recordedUrl}
+              onClick={() => void startRecording()}
+            >
+              Кружок
+            </button>
           </div>
           <div className="hint" style={{ marginTop: 0 }}>
-            Enter — отправить, Shift+Enter — перенос строки.
+            Enter — отправить, Shift+Enter — перенос строки. Кружок — до 60 секунд.
           </div>
+          {recordingError ? <div className="error">{recordingError}</div> : null}
         </div>
       </div>
 

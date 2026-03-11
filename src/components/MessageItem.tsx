@@ -19,6 +19,12 @@ export default function MessageItem(props: {
   onBlockUser?: (userId: string) => void;
 }) {
   const authorLabel = props.author ? `${props.author.avatar_emoji} ${props.author.nickname}` : "…";
+  const isCircle = props.message.kind === "circle";
+  const replyText = props.reply
+    ? props.reply.message.kind === "circle"
+      ? "Видео-сообщение"
+      : props.reply.message.text
+    : "";
 
   return (
     <div
@@ -50,11 +56,25 @@ export default function MessageItem(props: {
                 ? `${props.reply.author.avatar_emoji} ${props.reply.author.nickname}`
                 : "сообщение"}
             </div>
-            <div className="replyText">{props.reply.message.text}</div>
+            <div className="replyText">{replyText}</div>
           </div>
         ) : null}
 
-        <div className="msgText">{props.message.text}</div>
+        {isCircle ? (
+          <div className="circleWrap">
+            <video
+              className="circleVideo"
+              src={props.message.media_url ?? ""}
+              controls
+              playsInline
+            />
+            {props.message.media_duration ? (
+              <div className="circleMeta">{props.message.media_duration}s</div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="msgText">{props.message.text}</div>
+        )}
 
         <div className="msgActions">
           <button className="linkBtn" type="button" onClick={() => props.onReply(props.message.id)}>

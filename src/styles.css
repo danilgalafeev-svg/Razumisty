@@ -273,6 +273,26 @@ a {
   line-height: 1.35;
 }
 
+.circleWrap {
+  display: grid;
+  gap: 6px;
+}
+
+.circleVideo {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #000;
+  border: 1px solid var(--border);
+}
+
+.circleMeta {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
 .msgActions {
   margin-top: 8px;
   display: flex;
@@ -350,4 +370,3 @@ a {
     grid-template-columns: repeat(6, 1fr);
   }
 }
-

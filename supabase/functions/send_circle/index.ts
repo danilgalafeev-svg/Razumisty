@@ -3,20 +3,27 @@ import { tokenHash } from "../_shared/crypto.ts";
 import { handleOptions, jsonError, jsonOk } from "../_shared/response.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
 
+function toNumber(value: FormDataEntryValue | null) {
+  const num = Number(value ?? 0);
+  return Number.isFinite(num) ? num : 0;
+}
+
 serve(async (req) => {
   const preflight = handleOptions(req);
   if (preflight) return preflight;
   if (req.method !== "POST") return jsonError("Method not allowed", 405);
 
   try {
-    const body = (await req.json()) as { token?: string; text?: string; replyTo?: string | null };
-    const token = body.token ?? "";
-    const text = (body.text ?? "").trim();
-    const replyTo = body.replyTo ?? null;
+    const form = await req.formData();
+    const token = String(form.get("token") ?? "");
+    const replyToRaw = form.get("replyTo");
+    const replyTo = replyToRaw ? String(replyToRaw) : null;
+    const duration = Math.min(Math.max(toNumber(form.get("duration")), 1), 60);
+    const file = form.get("file");
 
     if (!token) return jsonError("Нет сессии", 401);
-    if (!text) return jsonError("Пустое сообщение", 400);
-    if (text.length > 2000) return jsonError("Слишком длинное сообщение", 400);
+    if (!(file instanceof File)) return jsonError("Нет файла", 400);
+    if (file.size <= 0) return jsonError("Пустой файл", 400);
 
     const supabase = createServiceClient();
     const { data: session, error: se } = await supabase
@@ -45,9 +52,26 @@ serve(async (req) => {
       if (!exists) return jsonError("Исходное сообщение не найдено", 400);
     }
 
+    const ext = file.type.includes("mp4") ? "mp4" : "webm";
+    const path = `${session.user_id}/${crypto.randomUUID()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("circles")
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (uploadError) return jsonError(uploadError.message, 400);
+
+    const { data: publicUrl } = supabase.storage.from("circles").getPublicUrl(path);
+
     const { data: message, error: me } = await supabase
       .from("messages")
-      .insert({ user_id: session.user_id, text, reply_to: replyTo })
+      .insert({
+        user_id: session.user_id,
+        text: "",
+        reply_to: replyTo,
+        kind: "circle",
+        media_url: publicUrl.publicUrl,
+        media_duration: duration,
+      })
       .select("id,user_id,text,reply_to,created_at,kind,media_url,media_duration")
       .single();
     if (me) return jsonError(me.message, 400);
@@ -57,3 +81,4 @@ serve(async (req) => {
     return jsonError((e as Error).message || "Bad request", 400);
   }
 });
+
